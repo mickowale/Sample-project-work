@@ -14,20 +14,25 @@ type Stack = { stack : string list } with
     | [] -> raise StackIsEmpty
     | fst :: rest -> (fst, { stack = rest })
 
+/// Check if a string is a properly mangled string
 let isMangledName (s: string) = 
   if s.[0] <> '?' then false
   else true
 
+/// Check if a mangled string is a name
 let isNameLiteral (s: string) =
   if Char.IsLetter s.[0] then true
   else false
 
-
+/// Form a nested representation using the :: symbol
 let rec nestNames (s: Stack) = 
   let firstName, newStack = s.pop ()
   if newStack.isEmpty then firstName
   else 
     nestNames newStack + "::" + firstName
+
+
+/// Display the output of the demangler on the screen
 let getOutputString s result = 
   s + " : " + result
     
