@@ -9,19 +9,22 @@ exception StackIsEmpty
 type Stack = { stack : string list } with 
   member this.isEmpty = List.isEmpty this.stack
   member this.add s = { stack = s::this.stack }
-  member this.pop ()=  
+  member this.pop () =  
     match this.stack with
     | [] -> raise StackIsEmpty
     | fst :: rest -> (fst, { stack = rest })
 
 /// Check if a string is a properly mangled string
-let isMangledName (s: string) = 
+let isMangledString (s: string) = 
   if s.[0] <> '?' then false
   else true
+let isSpecialName (s: string) = 
+  if s.[0] <> '?' then true
+  else false
 
 /// Check if a mangled string is a name
 let isNameLiteral (s: string) =
-  if Char.IsLetter s.[0] then true
+  if  s.Length > 0 &&  Char.IsLetter s.[0] then true
   else false
 
 /// Form a nested representation using the :: symbol
@@ -38,7 +41,7 @@ let getOutputString s result =
     
 
 let demangle (s: string) =
-  if not (isMangledName s) then getOutputString s "No Result"
+  if not (isMangledString s) then getOutputString s "No Result"
   else 
     let literals = s.[1 ..].Split [|'@'|]
   
@@ -52,7 +55,7 @@ let demangle (s: string) =
 
 [<EntryPoint>]
 let main argv = 
-  let test = "?func1@func2@func3@func4"
+  let test = "?something@nested@myclass@@"
   let result = demangle test
 
   printfn "%s" result
