@@ -64,30 +64,30 @@ let underscoredTypes =
 
 let scopes = 
   [
-     'A' , "private:"
-     'B' , "private:"
-     'C' , "private: static"
-     'D' , "private: static"
-     'E' , "private: virtual"
-     'F' , "private: virtual"
-     'G' , "private: thunk"
-     'H' , "private: thunk"
-     'I' , "protected:"
-     'J' , "protected:"
-     'K' , "protected: static"
-     'L' , "protected: static"
-     'M' , "protected: virtual"
-     'N' , "protected: virtual"
-     'O' , "protected: thunk"
-     'P' , "protected: thunk"
-     'Q' , "public:"
-     'R' , "public:"
-     'S' , "public: static"
-     'T' , "public: static"
-     'U' , "public: virtual"
-     'V' , "public: virtual"
-     'W' , "public: thunk"
-     'X' , "public: thunk"
+     'A' , "private: "
+     'B' , "private: "
+     'C' , "private: static "
+     'D' , "private: static "
+     'E' , "private: virtual "
+     'F' , "private: virtual "
+     'G' , "private: thunk "
+     'H' , "private: thunk "
+     'I' , "protected: "
+     'J' , "protected: "
+     'K' , "protected: static "
+     'L' , "protected: static "
+     'M' , "protected: virtual "
+     'N' , "protected: virtual "
+     'O' , "protected: thunk "
+     'P' , "protected: thunk "
+     'Q' , "public: "
+     'R' , "public: "
+     'S' , "public: static "
+     'T' , "public: static "
+     'U' , "public: virtual "
+     'V' , "public: virtual "
+     'W' , "public: thunk "
+     'X' , "public: thunk "
      'Y' , ""
      'Z' , ""
 
@@ -112,55 +112,27 @@ let callConv =
      'L' , ""
      'M' , "clrcall"
   ] |> Map.ofList
-/// Check if a type needs further dealing with
-/// Check if it is Not implemented yet
-let isComplexType (typeString: string) = 
-  if List.contains typeString.[0] ['#' ; '+' ] then true
-  else false
 
-/// Check if a type is a normal type and needs no further decoding
-let isNormalType (typeString: string) =
-  if isComplexType typeString then false
-  else true
 
-/// Stack implementation is used to handle nested function demangling
-type Stack = { stack : string list } with 
-  member this.isEmpty = List.isEmpty this.stack
-  member this.print = printfn "%A" this.stack
-  member this.asList = this.stack
-  member this.add s = { stack = s::this.stack }
-  member this.pop () =  
-    match this.stack with
-    | [] -> raise StackIsEmpty
-    | fst :: rest -> (fst, { stack = rest })
+let modifiers = 
+  [
+     'A' , ""
+     'B' , "const"
+     'C' , "volatile"
+     'D' , "const volatile"
+  ] |> Map.ofList
 
-/// Check if a string is a visual c++ mangled string
-let isMangledString (s: string) = 
-  if s.[0] <> '?' then false
-  else true
 
-/// Check if the literal has is a special name
-let isSpecialName (s: string) = 
-  if s.[0] <> '?' then true
-  else false
-
-/// Check if a mangled string is a name
-let isNameLiteral (s: string) =
-  if  s.Length > 0 &&  Char.IsLetter s.[0] then true
-  else false
-
-/// Check if a literal is a type identifier
-let isTypeLiteral (s: string) =
-  if s.Length > 0 && s.[0] = '@' then true
-  else false
 
 /// Get corresponding types from a list of letters
-/// called in inferTypes function
+/// called in decodeTypes function
 let rec getTypes (lst: char list)  (result: string list) = 
   match lst with 
   | first :: rest -> 
     if Char.IsLetterOrDigit first then 
       getTypes rest ((normalTypes.Item first)::result)
+    elif first = 'P' then 
+      getTypes rest ((normalTypes.Item rest.Head + "*") :: result)
     elif first = '_' then 
       getTypes rest.Tail ((underscoredTypes.Item rest.Head)::result)
     else []
@@ -168,14 +140,6 @@ let rec getTypes (lst: char list)  (result: string list) =
   | [] -> List.rev result
 
 
-
-/// Infer the types from the type identifier string
-/// Returns a list of type strings
-/// Called in the demangle function
-let inferTypes (s:string) =
-  let charList = Seq.toList s.[1..]
-  printfn "the characters are %A" charList
-  getTypes charList []
 
 /// Wrap the types in function parameter style string 
 /// example (int,bool,...)
@@ -190,60 +154,43 @@ let makeParameters (types: string list) =
 let assignTypes (func: string) (callConv: string) (types: string list) = 
   if types.Length = 0 then func
   else 
-    types.Head + "  " + callConv + " " + func + makeParameters types.Tail
+    types.Head + " " + callConv + " " + func + makeParameters types.Tail
 
 /// Form a nested representation using the :: symbol
 let rec nestNames (lst: string list) =
   if List.length lst = 0 then ""
   else 
-    List.foldBack (fun x acc -> acc + "::" + x) lst.Tail lst.Head
+    List.fold (fun acc x -> acc + "::" + x) lst.Head lst.Tail
 
 
-/// Display the output of the demangler on the screen
-let getOutputString s result = 
-  s + " : " + result
+
     
 
 /// Update the mangled string to facilitate the split operation to follow
 /// Used in the demangle function
+/// Changes the first @'s of the string to " "
 let rec format (s: string) = 
   if s.Length < 2 then s
   elif s.[0] = '@' then 
     if s.[1] = '@' then 
       try " " + "@" + (format s.[ 2.. ]) with 
-      | IndexOutOfRangeException -> raise NotProperConstruct
+      | _ -> raise NotProperConstruct
     else " " + format s.[ 1.. ]
   else  s.[0].ToString () + (format s.[ 1.. ])
 
 
-/// Main demangler function
-let demangle (s: string) =
-  if not (isMangledString s) then getOutputString s "No Result"
-  else 
-    let formatted = format s
-    let literals = formatted.[1 ..].Split [|' '|]
-  
-    let nameStack = {stack = Seq.toList (Seq.filter isNameLiteral literals)}
-    let typeStack = {stack = Seq.toList (Seq.filter isTypeLiteral literals)}
+/// This function helps decode the type string by using the calling scope
+/// Gets the calling convention and modifier... appended at the end
+/// Called in the decode Types function
+let restTypesAndMod (scope:string) (types: string) = 
+  match scope with
+  | "" -> callConv.Item types.[2] , Seq.toList types.[3 ..], ""
+  | _  -> 
+    let modifier = modifiers.Item(types.[2])
+    callConv.Item types.[3] , Seq.toList types.[4 ..], modifier
 
-    nameStack.print
-    typeStack.print
-    
-    let funcName = nestNames nameStack.stack
-    let fst,rStack = typeStack.pop () 
-
-    printfn "%A" fst
-    let types1 = inferTypes fst
-    printfn "The types are %A" types1
-
-    //let result = assignTypes funcName (List.filter isNormalType  types1)
-    //getOutputString s result
-    ""
-
-
-
-
-
+/// This function checks and decodes the full nested name 
+/// It returns the nested name and the remaining type string
 let rec getFullName (namePart: string list) (mangledPart: string list)  = 
   match mangledPart with 
   | [] -> nestNames namePart, []
@@ -253,30 +200,32 @@ let rec getFullName (namePart: string list) (mangledPart: string list)  =
     | '?' -> failwith "unimplemented"
     | _ -> getFullName (s1 :: namePart) rest
 
-
+/// This function decodes the type literall string
 let decodeTypes (types: string list) = 
-  if types.IsEmpty then "" , "" , []
+  if types.IsEmpty then "" , "" , [],""
   else
     let t1 = types.Head
     printfn "the type to be analysed is %s" t1
     if t1.[0] = '@' then 
       let scope = scopes.Item t1.[1]
-      let caller = callConv.Item t1.[2]
-      let normalTypes = Seq.toList (t1.ToCharArray(3, t1.Length-3))
+      let caller, normalTypes, modifier = restTypesAndMod scope t1
       
       printfn "the normal types inferred are %A" normalTypes
       
       let realTypes = getTypes normalTypes []
-      scope, caller, realTypes
-    else "","",[]
+      scope, caller, realTypes, modifier
+    else failwith "implement"
     
   
 
-let demangle2 (str: string) = 
+let demangle (str: string) = 
   if str.Length = 0 then ""
   else 
     match str.[0] with
-    | '?' -> ""
+    | '?' ->
+      match str.[1] with
+      | '$' -> ""
+        
     | _ ->
       let formatted = format str
       let literals = Seq.toList (formatted.Split [|' '|])
@@ -286,22 +235,34 @@ let demangle2 (str: string) =
       let namePart,typePart = getFullName [] literals
 
       printfn "the name decoded and the typePart are %s and %A" namePart typePart
-      let scope,callConv,types = decodeTypes typePart
+      let scope,callConv,types, modifier = decodeTypes typePart
       
       printfn "the scope is %s" scope
       printfn "the callConv is %A" callConv
       printfn "the types are %A" types
       
-      scope + (assignTypes namePart callConv types)
+      scope + (assignTypes namePart callConv types) + modifier
       
 let start (str: string) = 
   if str.[0] <> '?' then "not mangled name"
-  else demangle2 (str.[1 ..])
+  else demangle (str.[1 ..])
+
+
+
+
+
+
+
+
+
+/// Display the output of the demangler on the screen
+let getOutputString s result = 
+  s + " : " + result
 
 /// Test runs
 [<EntryPoint>]
 let main argv = 
-  let test = "?something@@YAXH_N@Z"
+  let test = "?something"
   let result = start test
 
   printfn "%s" result
