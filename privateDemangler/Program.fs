@@ -99,9 +99,9 @@ let scopes =
 let callConv = 
   [
      'A' , "cdecl"
-     'B' , "private:"
+     'B' , "cdecl"
      'C' , "pascal"
-     'D' , "private: static"
+     'D' , "pascal"
      'E' , "thiscall"
      'F' , "thiscall"
      'G' , "stdcall"
@@ -126,16 +126,21 @@ let modifiers =
 
 /// Get corresponding types from a list of letters
 /// called in decodeTypes function
-let rec getTypes (lst: char list)  (result: string list) = 
+let rec getTypes (lst: char list)  (result: string list) : string list= 
   match lst with 
   | first :: rest -> 
-    if Char.IsLetterOrDigit first then 
-      getTypes rest ((normalTypes.Item first)::result)
-    elif first = 'P' then 
-      getTypes rest ((normalTypes.Item rest.Head + "*") :: result)
-    elif first = '_' then 
-      getTypes rest.Tail ((underscoredTypes.Item rest.Head)::result)
-    else []
+    match first with 
+    | 'P' -> 
+      let ref,remain = rest.Head, rest.Tail
+      match  getTypes remain [] with 
+      | next :: other ->
+        if ref = 'A' then
+          List.concat [List.rev result; (next + " *") :: other] 
+        else 
+          List.concat [List.rev result; ((next + " const *") :: other)]
+      | [] -> failwith "this should never happen"
+    | '_' -> getTypes rest.Tail ((underscoredTypes.Item rest.Head) :: result) 
+    |  _  -> getTypes rest ((normalTypes.Item first) :: result)
   
   | [] -> List.rev result
 
@@ -148,6 +153,11 @@ let makeParameters (types: string list) =
   if types.Length = 0 then ""
   else 
     "(" + List.fold (fun s t -> s + "," + t) types.Head types.Tail + ")"
+
+let makeClassParams (types: string list) = 
+  if types.Length =  0 then ""
+  else 
+    "<" + List.fold (fun s t -> s + "," + t) types.Head types.Tail + ">"
 
 /// Form the function name with all return and parameter types
 /// where the first type name is the return type and the rest parameter types
@@ -183,6 +193,7 @@ let rec format (s: string) =
 /// Gets the calling convention and modifier... appended at the end
 /// Called in the decode Types function
 let restTypesAndMod (scope:string) (types: string) = 
+  printfn "the scope chosen is %s" scope
   match scope with
   | "" -> callConv.Item types.[2] , Seq.toList types.[3 ..], ""
   | _  -> 
@@ -201,6 +212,7 @@ let rec getFullName (namePart: string list) (mangledPart: string list)  =
     | _ -> getFullName (s1 :: namePart) rest
 
 /// This function decodes the type literall string
+/// Handles function types with calling convention 
 let decodeTypes (types: string list) = 
   if types.IsEmpty then "" , "" , [],""
   else
@@ -218,20 +230,22 @@ let decodeTypes (types: string list) =
     
   
 
-let demangle (str: string) = 
-  if str.Length = 0 then ""
-  else 
-    match str.[0] with
+let demangle (literals: string list) = 
+  match literals with
+  | [] -> ""
+  | head :: tail ->
+    match head.[0] with
     | '?' ->
-      match str.[1] with
-      | '$' -> ""
+      match head.[1] with
+      | '$' -> 
+        let typeChars = Seq.toList tail.Head
+        let types = getTypes typeChars []
+        let fullName = nestNames (head.[2..] :: tail.Tail)
+
+        fullName + makeClassParams types
+          
         
     | _ ->
-      let formatted = format str
-      let literals = Seq.toList (formatted.Split [|' '|])
-     
-      printfn "the literals are %A" literals
-
       let namePart,typePart = getFullName [] literals
 
       printfn "the name decoded and the typePart are %s and %A" namePart typePart
@@ -245,7 +259,12 @@ let demangle (str: string) =
       
 let start (str: string) = 
   if str.[0] <> '?' then "not mangled name"
-  else demangle (str.[1 ..])
+  else 
+    let formatted = format str.[1 ..]
+    let literals = Seq.toList (formatted.Split [|' '|])
+    printfn "the formatted string looks like this %A" formatted
+    printfn "the literals passed are %A" literals
+    demangle (literals)
 
 
 
@@ -262,7 +281,7 @@ let getOutputString s result =
 /// Test runs
 [<EntryPoint>]
 let main argv = 
-  let test = "?something"
+  let test = "??$def@H@shit@something@you@@"
   let result = start test
 
   printfn "%s" result
