@@ -1,5 +1,7 @@
 ﻿// Learn more about F# at http://fsharp.org
 // See the 'F# Tutorial' project for more help.
+
+module rec PrivateDemangler
 open System
 
 exception StackIsEmpty
@@ -124,11 +126,41 @@ let modifiers =
 
 
 
+/// get the part for class and the rest of the list to be demangled separetly
+let rec classSplit (classPart: string list) (lst: string list) = 
+  match lst with 
+  | [] -> List.rev classPart, []
+  | head :: tail -> 
+    match head.[0] with 
+    | '@' -> List.rev classPart, lst
+    | _ -> classSplit (head :: classPart)  tail
+
+/// get the part for class and the rest of the list to be demangled separatly
+/// This function takes care of nested classes
+let rec classSplit2 (classPart: string list) (lst: string list) count =
+  match lst with 
+  | [] -> List.rev classPart, lst
+  | head :: tail ->
+    if count = 0 && (not (head.Contains "?")) then List.rev classPart, lst
+    else 
+      match head.[0] with 
+        | '@' ->  
+          if count = 1 then List.rev classPart, lst else
+          if (head.Contains "?") then 
+            classSplit2 (head :: classPart) tail count
+          else 
+          classSplit2 (head :: classPart) tail (count - 1) 
+        | _ ->  
+          if (head.Contains "?") then 
+            classSplit2 (head :: classPart) tail (count + 1)
+          else 
+            classSplit2 (head :: classPart)  tail count
 /// Get corresponding types from a list of letters
 /// called in decodeTypes function
 let rec getTypes (lst: char list)  (result: string list) : string list= 
   match lst with 
   | first :: rest -> 
+    printfn "looking for a type for %c" first
     match first with 
     | 'P' -> 
       let ref,remain = rest.Head, rest.Tail
@@ -139,7 +171,7 @@ let rec getTypes (lst: char list)  (result: string list) : string list=
         else 
           List.concat [List.rev result; ((next + " const *") :: other)]
       | [] -> failwith "this should never happen"
-    | '_' -> getTypes rest.Tail ((underscoredTypes.Item rest.Head) :: result) 
+    | '_' -> getTypes rest.Tail ((underscoredTypes.Item rest.Head) :: result)
     |  _  -> getTypes rest ((normalTypes.Item first) :: result)
   
   | [] -> List.rev result
@@ -207,8 +239,14 @@ let rec getFullName (namePart: string list) (mangledPart: string list)  =
   | [] -> nestNames namePart, []
   | s1 :: rest ->
     match s1.[0] with 
-    | '@'-> nestNames namePart, mangledPart
-    | '?' -> failwith "unimplemented"
+    | '@'-> 
+      nestNames namePart, mangledPart
+    | '?' -> 
+      let classPart, remain = classSplit2 [] mangledPart 0
+      printfn "the class part and the remaining of the class are %A and %A" classPart remain
+      let className = demangle classPart
+      getFullName (className :: namePart) remain
+      
     | _ -> getFullName (s1 :: namePart) rest
 
 /// This function decodes the type literall string
@@ -229,8 +267,9 @@ let decodeTypes (types: string list) =
     else failwith "implement"
     
   
-
-let demangle (literals: string list) = 
+/// Main demangling function
+/// Takes the formatted string list and gives the demangled string
+let demangle (literals: string list) =  
   match literals with
   | [] -> ""
   | head :: tail ->
@@ -238,16 +277,19 @@ let demangle (literals: string list) =
     | '?' ->
       match head.[1] with
       | '$' -> 
-        let typeChars = Seq.toList tail.Head
-        let types = getTypes typeChars []
-        let fullName = nestNames (head.[2..] :: tail.Tail)
+        if literals.[literals.Length - 1].[0] = '@' 
+          then demangle literals.[0 .. literals.Length - 2]
+        else 
+          printfn "complex class trying to demangle %A" literals
+          let typeChars = Seq.toList tail.Head
+          let types = getTypes typeChars []
+          let fullName = nestNames (List.rev (head.[2..] :: tail.Tail))
 
-        fullName + makeClassParams types
+          fullName + makeClassParams types
           
         
     | _ ->
-      let namePart,typePart = getFullName [] literals
-
+      let namePart, typePart = getFullName [] literals
       printfn "the name decoded and the typePart are %s and %A" namePart typePart
       let scope,callConv,types, modifier = decodeTypes typePart
       
@@ -256,13 +298,14 @@ let demangle (literals: string list) =
       printfn "the types are %A" types
       
       scope + (assignTypes namePart callConv types) + modifier
-      
+
+/// Initiates the demangle process
+/// Calls the format function function first
 let start (str: string) = 
   if str.[0] <> '?' then "not mangled name"
   else 
     let formatted = format str.[1 ..]
     let literals = Seq.toList (formatted.Split [|' '|])
-    printfn "the formatted string looks like this %A" formatted
     printfn "the literals passed are %A" literals
     demangle (literals)
 
@@ -281,7 +324,7 @@ let getOutputString s result =
 /// Test runs
 [<EntryPoint>]
 let main argv = 
-  let test = "??$def@H@shit@something@you@@"
+  let test = "??$def@H@in@this@@"
   let result = start test
 
   printfn "%s" result
